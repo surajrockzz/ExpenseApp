@@ -4,7 +4,8 @@ var verify = require('./verify.js');
 var app = express();
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({limit: '50mb', extended: false }));
-app.use(express.static(__dirname + '/public'));
+app.use('',express.static(__dirname + '/login'));
+app.use('/dashboard',express.static(__dirname + '/dashboard'));
 var mysql      = require('mysql');
 var jwt = require('jsonwebtoken')
 var bcrypt = require('bcryptjs');
@@ -14,7 +15,7 @@ var connection = mysql.createConnection({
   password : '',
   database : 'expenses'
 });
-var token=null;
+token=null;
 connection.connect();
 app.post("/login",function(req,res){
         var query = "SELECT * FROM users_table where username='"+req.body.username+"'"
@@ -23,9 +24,9 @@ app.post("/login",function(req,res){
                 throw error;
             else{
                var comp =  bcrypt.compareSync(req.body.pass, results[0].password);
+               console.log(comp)
                if(comp){
                     token = jwt.sign({username:req.body.username},"snuerearaj",{algorithm:'HS256'});
-                    res.set("authorization",token);
                     res.status(200).json(token);
                }
                else{
@@ -37,44 +38,53 @@ app.post("/login",function(req,res){
 })
 
 app.post("/user",function(req,res){
-    if (username != false) {
+    console.log(token);
+    console.log(req.body.token);
+
+    if ( req.body.token == token) {
         var number = parseInt(req.body.pri, 10);
+        var decoded = jwt.verify(token, "snuerearaj");
         // var sql = "select * from store_expense";
-        var sql = "INSERT INTO store_expense(userid,type,description,price) VALUES ('"+username+"','"+ req.body.types + "','" + req.body.descr + "','" + number + "')";
+        var sql = "INSERT INTO store_expense(userid,type,description,price) VALUES ('"+decoded.username+"','"+ req.body.types + "','" + req.body.descr + "','" + number + "')";
         connection.query(sql, function (error, results) {
             if (error) throw error;
             console.log('The solution is: ', results);
         });
     }
     else{
-        res.redirect("/login");
+        res.redirect("/login.html");
     }
 })
 
-app.post("/query",function(req,res){
-    
-   var query ="SELECT type,sum(price) as price FROM `store_expense` WHERE userid="+"'users' GROUP BY type"
-    var response = req.body;
-    var suraj = function(results){
-        for(var i=0;i<results.length;i++){
-            response[results[i].type]=results[i].price+"";
-            console.log(response[results[i].type]);
+app.post("/query", function (req, res) {
+    if (req.body.token == token) {
+        var query = "SELECT type,sum(price) as price FROM `store_expense` WHERE userid=" + "'users' GROUP BY type"
+        var response = req.body;
+        var suraj = function (results) {
+            for (var i = 0; i < results.length; i++) {
+                response[results[i].type] = results[i].price + "";
+                console.log(response[results[i].type]);
+            }
+            return new Promise(function (resolve, reject) {
+                resolve(response)
+            })
         }
-        return new Promise(function(resolve,reject){
-                resolve(response)    
+        connection.query(query, function (error, results) {
+            if (error) throw error;
+            var promise = suraj(results);
+            promise.then(function () {
+                console.log(response);
+                res.status(200).json(response);
+            })
+
         })
     }
-    connection.query(query,function(error,results){
-        if(error) throw error;
-        var promise = suraj(results);
-        promise.then(function(){
-            console.log(response);
-            res.status(200).json(response);
-        })
-        
-    })
+    else{
+        res.status(400).json("session expired");
+    }
     
 })
+
 app.post("/register",function(req,res){
     var salt = bcrypt.genSaltSync(10);
     var hash = bcrypt.hashSync(req.body.pass, salt);
